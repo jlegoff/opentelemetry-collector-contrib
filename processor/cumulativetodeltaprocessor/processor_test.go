@@ -34,6 +34,12 @@ type testMetric struct {
 	isCumulative []bool
 }
 
+type testMetricInt struct {
+	metricNames  []string
+	metricValues [][]int64
+	isCumulative []bool
+}
+
 type cumulativeToDeltaTest struct {
 	name       string
 	metrics    []string
@@ -82,6 +88,20 @@ var (
 			outMetrics: generateTestMetrics(testMetric{
 				metricNames:  []string{"metric_1", "metric_2"},
 				metricValues: [][]float64{{100, 100, math.NaN()}, {4}},
+				isCumulative: []bool{false, true},
+			}),
+		},
+		{
+			name:    "cumulative_to_delta_int_value",
+			metrics: []string{"metric_1"},
+			inMetrics: generateTestMetricsWithIntDatapoint(testMetricInt{
+				metricNames:  []string{"metric_1", "metric_2"},
+				metricValues: [][]int64{{100, 200, 500}, {4}},
+				isCumulative: []bool{true, true},
+			}),
+			outMetrics: generateTestMetricsWithIntDatapoint(testMetricInt{
+				metricNames:  []string{"metric_1", "metric_2"},
+				metricValues: [][]int64{{100, 100, 300}, {4}},
 				isCumulative: []bool{false, true},
 			}),
 		},
@@ -136,7 +156,12 @@ func TestCumulativeToDeltaProcessor(t *testing.T) {
 					require.Equal(t, eDataPoints.Len(), aDataPoints.Len())
 
 					for j := 0; j < eDataPoints.Len(); j++ {
-						require.Equal(t, eDataPoints.At(j).DoubleVal(), aDataPoints.At(j).DoubleVal())
+						switch eDataPoints.At(j).Type() {
+						case pdata.MetricValueTypeDouble:
+							require.Equal(t, eDataPoints.At(j).DoubleVal(), aDataPoints.At(j).DoubleVal())
+						case pdata.MetricValueTypeInt:
+							require.Equal(t, eDataPoints.At(j).IntVal(), aDataPoints.At(j).IntVal())
+						}
 					}
 				}
 
@@ -151,7 +176,12 @@ func TestCumulativeToDeltaProcessor(t *testing.T) {
 						if math.IsNaN(eDataPoints.At(j).DoubleVal()) {
 							assert.True(t, math.IsNaN(aDataPoints.At(j).DoubleVal()))
 						} else {
-							require.Equal(t, eDataPoints.At(j).DoubleVal(), aDataPoints.At(j).DoubleVal())
+							switch eDataPoints.At(j).Type() {
+							case pdata.MetricValueTypeDouble:
+								require.Equal(t, eDataPoints.At(j).DoubleVal(), aDataPoints.At(j).DoubleVal())
+							case pdata.MetricValueTypeInt:
+								require.Equal(t, eDataPoints.At(j).IntVal(), aDataPoints.At(j).IntVal())
+							}
 						}
 					}
 				}
@@ -187,6 +217,37 @@ func generateTestMetrics(tm testMetric) pdata.Metrics {
 			dp := m.Sum().DataPoints().AppendEmpty()
 			dp.SetTimestamp(pdata.NewTimestampFromTime(now.Add(10 * time.Second)))
 			dp.SetDoubleVal(value)
+		}
+	}
+
+	return md
+}
+
+
+func generateTestMetricsWithIntDatapoint(tm testMetricInt) pdata.Metrics {
+	md := pdata.NewMetrics()
+	now := time.Now()
+
+	rm := md.ResourceMetrics().AppendEmpty()
+	ms := rm.InstrumentationLibraryMetrics().AppendEmpty().Metrics()
+	for i, name := range tm.metricNames {
+		m := ms.AppendEmpty()
+		m.SetName(name)
+		m.SetDataType(pdata.MetricDataTypeSum)
+
+		sum := m.Sum()
+		sum.SetIsMonotonic(true)
+
+		if tm.isCumulative[i] {
+			sum.SetAggregationTemporality(pdata.MetricAggregationTemporalityCumulative)
+		} else {
+			sum.SetAggregationTemporality(pdata.MetricAggregationTemporalityDelta)
+		}
+
+		for _, value := range tm.metricValues[i] {
+			dp := m.Sum().DataPoints().AppendEmpty()
+			dp.SetTimestamp(pdata.NewTimestampFromTime(now.Add(10 * time.Second)))
+			dp.SetIntVal(value)
 		}
 	}
 

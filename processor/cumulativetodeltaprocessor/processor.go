@@ -73,13 +73,26 @@ func (ctdp *cumulativeToDeltaProcessor) processMetrics(_ context.Context, md pda
 								labelMap[k] = v.AsString()
 								return true
 							})
-							datapointValue := fromDataPoint.DoubleVal()
+
+							var datapointValue float64
+							switch fromDataPoint.Type() {
+							case pdata.MetricValueTypeDouble:
+								datapointValue = fromDataPoint.DoubleVal()
+							case pdata.MetricValueTypeInt:
+								datapointValue = float64(fromDataPoint.IntVal())
+							}
+							//datapointValue := fromDataPoint.DoubleVal()
 							if math.IsNaN(datapointValue) {
 								continue
 							}
 							result, _ := ctdp.deltaCalculator.Calculate(metric.Name(), labelMap, datapointValue, fromDataPoint.Timestamp().AsTime())
 
-							fromDataPoint.SetDoubleVal(result.(delta).value)
+							switch fromDataPoint.Type() {
+							case pdata.MetricValueTypeDouble:
+								fromDataPoint.SetDoubleVal(result.(delta).value)
+							case pdata.MetricValueTypeInt:
+								fromDataPoint.SetIntVal(int64(result.(delta).value))
+							}
 							fromDataPoint.SetStartTimestamp(pdata.NewTimestampFromTime(result.(delta).prevTimestamp))
 						}
 						metric.Sum().SetAggregationTemporality(pdata.MetricAggregationTemporalityDelta)
